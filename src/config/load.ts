@@ -17,7 +17,7 @@ interface LoadArgs {
 
 function fromEnv(env: NodeJS.ProcessEnv): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const repo = env.PRAKTOR_REPO || env.BOULE_REPO || env.GITHUB_REPOSITORY;
+  const repo = env.PRAKTOR_REPO || env.GITHUB_REPOSITORY;
   if (repo) out.repo = repo;
   if (env.PRAKTOR_PROJECT) out.projectNumber = Number(env.PRAKTOR_PROJECT);
   if (env.PRAKTOR_LOG_LEVEL) out.log = { level: env.PRAKTOR_LOG_LEVEL };

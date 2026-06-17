@@ -1,5 +1,5 @@
-// src/config/auth.ts — resolve GitHub credentials. Reuses Boule's env names so Praktor drops into the
-// same org/CI secrets: a fine-grained PAT (GITHUB_TOKEN) OR the GitHub App trio (BOULE_APP_*).
+// src/config/auth.ts — resolve GitHub credentials for Praktor's OWN identity: its own GitHub App
+// (PRAKTOR_APP_* trio) or a fine-grained PAT (PRAKTOR_GITHUB_TOKEN / GITHUB_TOKEN). Never Boule's App.
 export type GitHubAuth =
   | { kind: "pat"; token: string }
   | { kind: "app"; appId: string; installationId: string; privateKey: string };
@@ -20,16 +20,20 @@ function decodeKey(raw: string): string {
 }
 
 export function resolveAuth(env: NodeJS.ProcessEnv): AuthConfig {
-  const token = env.GITHUB_TOKEN || env.PRAKTOR_GITHUB_TOKEN || env.BOULE_GITHUB_TOKEN;
-  const appId = env.BOULE_APP_ID || env.PRAKTOR_APP_ID;
-  const installationId = env.BOULE_APP_INSTALLATION_ID || env.PRAKTOR_APP_INSTALLATION_ID;
-  const privateKey = env.BOULE_APP_PRIVATE_KEY || env.PRAKTOR_APP_PRIVATE_KEY;
+  // Praktor has its OWN GitHub App identity — it never borrows Boule's credentials.
+  const appId = env.PRAKTOR_APP_ID;
+  const installationId = env.PRAKTOR_APP_INSTALLATION_ID;
+  const privateKey = env.PRAKTOR_APP_PRIVATE_KEY;
+  const token = env.PRAKTOR_GITHUB_TOKEN || env.GITHUB_TOKEN;
 
   if (appId && installationId && privateKey) {
     return { github: { kind: "app", appId, installationId, privateKey: decodeKey(privateKey) } };
   }
   if (token) return { github: { kind: "pat", token } };
-  throw Object.assign(new Error("no GitHub credentials: set GITHUB_TOKEN, or the BOULE_APP_* trio"), {
-    name: "UsageError",
-  });
+  throw Object.assign(
+    new Error(
+      "no GitHub credentials: set the PRAKTOR_APP_* trio (Praktor's own App), or PRAKTOR_GITHUB_TOKEN/GITHUB_TOKEN",
+    ),
+    { name: "UsageError" },
+  );
 }

@@ -27,10 +27,12 @@ praktor implement [task]    # claim one ready task, implement it, open a PR
 
 ## Configuration
 
-Reads the same environment as Boule so it drops into the same repo/CI secrets:
+Praktor has its **own** identity and config — it never borrows Boule's credentials:
 
-- `PRAKTOR_REPO` / `BOULE_REPO` / `GITHUB_REPOSITORY` — `owner/name`
-- Auth: `GITHUB_TOKEN` (fine-grained PAT) **or** the `BOULE_APP_*` GitHub App trio
+- `PRAKTOR_REPO` / `GITHUB_REPOSITORY` — target repo `owner/name`
+- Auth: Praktor's **own GitHub App** via the `PRAKTOR_APP_*` trio
+  (`PRAKTOR_APP_ID`, `PRAKTOR_APP_INSTALLATION_ID`, `PRAKTOR_APP_PRIVATE_KEY`),
+  **or** a fine-grained PAT (`PRAKTOR_GITHUB_TOKEN` / `GITHUB_TOKEN`)
 - `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) for the agent
 
 Global flags: `--repo`, `--project`, `--budget <usd>`, `--max-turns <n>`, `--dry-run`, `--json`, `-v`.
