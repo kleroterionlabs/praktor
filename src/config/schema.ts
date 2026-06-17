@@ -1,6 +1,6 @@
 // src/config/schema.ts — zod schema for Praktor config (env + CLI flags merged in load.ts).
+import { DISCUSSION_CATEGORIES } from "@kleroterion/koine";
 import { z } from "zod";
-import { DEFAULT_COORDINATION_CATEGORY } from "../core/taxonomy.js";
 
 export const ConfigSchema = z.object({
   repo: z.string().regex(/^[^/]+\/[^/]+$/, "repo must be 'owner/name'"),
@@ -22,7 +22,7 @@ export const ConfigSchema = z.object({
   coordination: z
     .object({
       // Discussion category Praktor posts claims/handoffs to. Must already exist in the repo.
-      category: z.string().default(DEFAULT_COORDINATION_CATEGORY),
+      category: z.string().default(DISCUSSION_CATEGORIES.handoff),
       // A claim older than this (minutes) is considered stale and the task may be re-grabbed.
       claimTtlMinutes: z.number().int().positive().default(60),
     })

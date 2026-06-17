@@ -1,23 +1,8 @@
 // src/config/auth.ts — resolve GitHub credentials for Praktor's OWN identity: its own GitHub App
 // (PRAKTOR_APP_* trio) or a fine-grained PAT (PRAKTOR_GITHUB_TOKEN / GITHUB_TOKEN). Never Boule's App.
-export type GitHubAuth =
-  | { kind: "pat"; token: string }
-  | { kind: "app"; appId: string; installationId: string; privateKey: string };
+import { type AuthConfig, type GitHubAuth, decodePrivateKey } from "@kleroterion/koine";
 
-export interface AuthConfig {
-  github: GitHubAuth;
-}
-
-/** Decode a base64-or-PEM private key (CI usually stores a single-line base64 blob). */
-function decodeKey(raw: string): string {
-  const v = raw.trim();
-  if (v.includes("BEGIN") && v.includes("PRIVATE KEY")) return v;
-  try {
-    return Buffer.from(v, "base64").toString("utf8");
-  } catch {
-    return v;
-  }
-}
+export type { AuthConfig, GitHubAuth };
 
 export function resolveAuth(env: NodeJS.ProcessEnv): AuthConfig {
   // Praktor has its OWN GitHub App identity — it never borrows Boule's credentials.
@@ -27,7 +12,7 @@ export function resolveAuth(env: NodeJS.ProcessEnv): AuthConfig {
   const token = env.PRAKTOR_GITHUB_TOKEN || env.GITHUB_TOKEN;
 
   if (appId && installationId && privateKey) {
-    return { github: { kind: "app", appId, installationId, privateKey: decodeKey(privateKey) } };
+    return { github: { kind: "app", appId, installationId, privateKey: decodePrivateKey(privateKey) } };
   }
   if (token) return { github: { kind: "pat", token } };
   throw Object.assign(

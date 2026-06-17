@@ -1,7 +1,7 @@
+import { PRAKTOR_LABELS } from "@kleroterion/koine";
 // src/cli/commands/status.ts — read-only snapshot: accepted vs ready vs in-flight, plus active claims.
 import type { Command } from "commander";
 import { ulid } from "ulid";
-import { PRAKTOR_LABELS } from "../../core/taxonomy.js";
 import { findCategoryId, listClaims } from "../../github/discussions.js";
 import { listAcceptedTasks, listReadyTasks } from "../../github/tasks.js";
 import { context, globals } from "./_shared.js";

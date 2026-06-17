@@ -1,9 +1,17 @@
 // src/github/tasks.ts — read Boule's Task backlog and decide what's READY to implement.
 // A Task is ready iff: open, kind:task, status:accepted, not already in-progress/done by Praktor,
 // and every native "blocked by" dependency is closed (its prerequisites are done).
-import { parseBouleBlock, parseVerifies } from "../core/boule.js";
-import { OPERATIONAL_LABELS, PRAKTOR_LABELS, STATUS, TASK_LABEL } from "../core/taxonomy.js";
-import type { GitHubClient } from "./client.js";
+import {
+  type GitHubClient,
+  OPERATIONAL_LABELS,
+  PRAKTOR_LABELS,
+  kindLabel,
+  parseBouleBlock,
+  parseVerifies,
+} from "@kleroterion/koine";
+
+const TASK_LABEL = kindLabel("task");
+const STATUS_ACCEPTED = "status:accepted";
 
 export interface TaskRef {
   number: number;
@@ -38,7 +46,7 @@ export async function listAcceptedTasks(gh: GitHubClient, owner: string, name: s
     o.issues.listForRepo({
       owner,
       repo: name,
-      labels: `${TASK_LABEL},${STATUS.accepted}`, // AND semantics
+      labels: `${TASK_LABEL},${STATUS_ACCEPTED}`, // AND semantics
       state: "open",
       per_page: 100,
     }),

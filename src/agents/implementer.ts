@@ -3,10 +3,9 @@
 // test/lint/build, and open a PR. Unlike Boule (GitHub-only writes), the implementer is a real coder —
 // it uses Read/Glob/Grep/Edit/Write/Bash in the checked-out working tree.
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import { type Logger, type RunOutcome, runQuery } from "@kleroterion/koine";
 import type { Config } from "../config/schema.js";
 import type { ReadyTask } from "../github/tasks.js";
-import type { Logger } from "../observability/logger.js";
-import { type RunResult, runAgent } from "./run.js";
 
 function systemPrompt(repo: string): string {
   return [
@@ -42,7 +41,7 @@ export interface ImplementArgs {
   log: Logger;
 }
 
-export async function implementTask(args: ImplementArgs): Promise<RunResult> {
+export async function implementTask(args: ImplementArgs): Promise<RunOutcome> {
   const { cfg, task, requirements } = args;
 
   const reqBlocks = requirements.length
@@ -75,5 +74,5 @@ export async function implementTask(args: ImplementArgs): Promise<RunResult> {
     permissionMode: cfg.flags.dryRun ? "plan" : "bypassPermissions",
   };
 
-  return runAgent(prompt, options, args.log);
+  return runQuery(prompt, options, { log: args.log });
 }

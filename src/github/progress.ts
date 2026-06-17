@@ -1,7 +1,6 @@
 // src/github/progress.ts — Praktor's marks on a Boule Task. Praktor signals progress with its OWN
 // `praktor:*` labels + an audit comment, never touching Boule's `status:*` lifecycle (Boule owns that).
-import { PRAKTOR_LABELS } from "../core/taxonomy.js";
-import type { GitHubClient } from "./client.js";
+import { type GitHubClient, PRAKTOR_LABELS } from "@kleroterion/koine";
 
 export async function addLabels(
   gh: GitHubClient,

@@ -1,5 +1,5 @@
+import { parseBouleBlock, parseVerifies } from "@kleroterion/koine";
 import { describe, expect, it } from "vitest";
-import { parseBouleBlock, parseVerifies } from "../../src/core/boule.js";
 
 describe("parseBouleBlock", () => {
   it("extracts kind, boule-id, and parent from the identity block", () => {

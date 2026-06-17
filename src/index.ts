@@ -2,7 +2,7 @@
 export { loadConfig } from "./config/load.js";
 export type { Config } from "./config/schema.js";
 export { resolveAuth } from "./config/auth.js";
-export { createGitHubClient } from "./github/client.js";
+export { createGitHubClient } from "@kleroterion/koine";
 export { listReadyTasks, listAcceptedTasks, isHalted } from "./github/tasks.js";
 export type { ReadyTask, TaskRef } from "./github/tasks.js";
 export { implementTask } from "./agents/implementer.js";

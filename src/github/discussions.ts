@@ -1,7 +1,7 @@
 // src/github/discussions.ts — peer coordination via GitHub Discussions. Praktor posts a CLAIM before
 // implementing a task so independent runners don't grab the same one, and a HANDOFF when it opens a PR.
 // Claims are best-effort cooperative locks (Discussions have no transaction): check → post → re-check.
-import type { GitHubClient } from "./client.js";
+import type { GitHubClient } from "@kleroterion/koine";
 
 /** Machine-readable marker embedded in a claim discussion body (HTML comment, invisible in the UI). */
 const CLAIM_RE = /<!--\s*praktor:claim\s+task=(\S+)\s+run=(\S+)\s+ts=(\S+)\s*-->/g;

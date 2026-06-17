@@ -1,10 +1,9 @@
 // src/cli/commands/_shared.ts — common wiring so each command stays a thin handler.
+import { type GitHubClient, createGitHubClient, createLogger } from "@kleroterion/koine";
 import type { Command } from "commander";
 import { resolveAuth } from "../../config/auth.js";
 import { type CliFlags, loadConfig } from "../../config/load.js";
 import type { Config } from "../../config/schema.js";
-import { type GitHubClient, createGitHubClient } from "../../github/client.js";
-import { createLogger } from "../../observability/logger.js";
 
 export interface GlobalFlags extends CliFlags {
   json?: boolean;
@@ -43,7 +42,7 @@ export async function context(global: GlobalFlags, runId: string): Promise<Ctx> 
   } catch (e) {
     throw Object.assign(new Error(e instanceof Error ? e.message : String(e)), { name: "UsageError" });
   }
-  const log = createLogger(cfg.log.level, runId);
+  const log = createLogger({ level: cfg.log.level, service: "praktor", runId });
   const gh = await createGitHubClient(resolveAuth(process.env), log);
   const [owner, name] = cfg.repo.split("/") as [string, string];
   return { cfg, gh, owner, name, json: Boolean(global.json), runId, log };

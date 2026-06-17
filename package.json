@@ -49,15 +49,9 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "@octokit/rest": "^21.0.0",
-    "@octokit/graphql": "^8.1.0",
-    "@octokit/auth-app": "^7.1.0",
-    "@octokit/plugin-throttling": "^9.3.0",
+    "@kleroterion/koine": "^0.0.1",
     "commander": "^12.1.0",
     "zod": "^3.23.0",
-    "pino": "^9.4.0",
-    "p-limit": "^6.1.0",
-    "p-retry": "^6.2.0",
     "ulid": "^2.3.0"
   },
   "devDependencies": {

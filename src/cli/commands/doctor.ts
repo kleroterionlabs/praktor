@@ -1,10 +1,9 @@
 // src/cli/commands/doctor.ts — preflight: config, credentials, repo + coordination category reachable.
+import { createGitHubClient, createLogger } from "@kleroterion/koine";
 import type { Command } from "commander";
 import { resolveAuth } from "../../config/auth.js";
 import { type CliFlags, loadConfig } from "../../config/load.js";
-import { createGitHubClient } from "../../github/client.js";
 import { findCategoryId } from "../../github/discussions.js";
-import { createLogger } from "../../observability/logger.js";
 import { globals } from "./_shared.js";
 
 export function registerDoctor(program: Command): void {
@@ -37,7 +36,7 @@ export function registerDoctor(program: Command): void {
       if (authOk) check(true, "GitHub credentials present");
 
       if (cfg && authOk) {
-        const log = createLogger("silent");
+        const log = createLogger({ level: "silent" });
         try {
           const gh = await createGitHubClient(resolveAuth(process.env), log);
           const [owner, name] = cfg.repo.split("/") as [string, string];
