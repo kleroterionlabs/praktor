@@ -1,0 +1,64 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.2.3, or major|minor|patch)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag, push the version bump, and publish the release
+      id-token: write # required for npm provenance
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --coverage
+      - run: npm run build
+
+      # Bump package.json only (no commit/tag yet) so we can publish before touching git.
+      # biome reformats what `npm version` rewrites, keeping the committed file lint-clean.
+      - name: Bump version
+        id: bump
+        run: |
+          new="$(npm version "${{ inputs.version }}" --no-git-tag-version)"
+          npx biome format --write package.json
+          echo "tag=$new" >> "$GITHUB_OUTPUT"
+
+      # Publish first: if this fails, no tag or version-bump commit is left behind.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Only after a successful publish: commit the bump, tag, and push.
+      - name: Commit, tag, and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: ${{ steps.bump.outputs.tag }}"
+          git tag "${{ steps.bump.outputs.tag }}"
+          git push --follow-tags
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: ${{ steps.bump.outputs.tag }}
+          generate_release_notes: true

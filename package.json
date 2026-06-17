@@ -1,0 +1,60 @@
+{
+  "name": "@kleroterion/praktor",
+  "version": "0.0.0",
+  "description": "Autonomous CLI that implements the Tasks produced by Boule — claims a ready GitHub Task, drives a Claude Agent SDK coder to write the change + tests, opens a PR, and coordinates with peers via GitHub Discussions.",
+  "keywords": [
+    "claude",
+    "agent-sdk",
+    "github",
+    "autonomous-agent",
+    "code-generation",
+    "task-runner",
+    "boule",
+    "cli"
+  ],
+  "homepage": "https://github.com/kleroterionlabs/praktor#readme",
+  "bugs": { "url": "https://github.com/kleroterionlabs/praktor/issues" },
+  "repository": { "type": "git", "url": "git+https://github.com/kleroterionlabs/praktor.git" },
+  "license": "MIT",
+  "author": "Bill Schumacher <34168009+BillSchumacher@users.noreply.github.com>",
+  "type": "module",
+  "engines": { "node": ">=20.11" },
+  "bin": { "praktor": "dist/bin.js" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli/bin.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome ci .",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@octokit/rest": "^21.0.0",
+    "@octokit/graphql": "^8.1.0",
+    "@octokit/auth-app": "^7.1.0",
+    "@octokit/plugin-throttling": "^9.3.0",
+    "commander": "^12.1.0",
+    "zod": "^3.23.0",
+    "pino": "^9.4.0",
+    "p-limit": "^6.1.0",
+    "p-retry": "^6.2.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "msw": "^2.4.0",
+    "pino-pretty": "^11.2.0",
+    "@biomejs/biome": "^1.9.0",
+    "@types/node": "^22.5.0"
+  }
+}
