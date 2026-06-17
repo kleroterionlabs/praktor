@@ -1,6 +1,6 @@
 {
   "name": "@kleroterion/praktor",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Autonomous CLI that implements the Tasks produced by Boule — claims a ready GitHub Task, drives a Claude Agent SDK coder to write the change + tests, opens a PR, and coordinates with peers via GitHub Discussions.",
   "keywords": [
     "claude",
@@ -13,18 +13,32 @@
     "cli"
   ],
   "homepage": "https://github.com/kleroterionlabs/praktor#readme",
-  "bugs": { "url": "https://github.com/kleroterionlabs/praktor/issues" },
-  "repository": { "type": "git", "url": "git+https://github.com/kleroterionlabs/praktor.git" },
+  "bugs": {
+    "url": "https://github.com/kleroterionlabs/praktor/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kleroterionlabs/praktor.git"
+  },
   "license": "MIT",
   "author": "Bill Schumacher <34168009+BillSchumacher@users.noreply.github.com>",
   "type": "module",
-  "engines": { "node": ">=20.11" },
-  "bin": { "praktor": "dist/bin.js" },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "bin": {
+    "praktor": "dist/bin.js"
+  },
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": ["dist"],
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli/bin.ts",
