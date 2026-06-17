@@ -1,6 +1,6 @@
 {
   "name": "@kleroterion/praktor",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Autonomous CLI that implements the Tasks produced by Boule — claims a ready GitHub Task, drives a Claude Agent SDK coder to write the change + tests, opens a PR, and coordinates with peers via GitHub Discussions.",
   "keywords": [
     "claude",
