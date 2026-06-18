@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  KRITES_VERSION: "0.0.2" # pinned @kleroterion/krites; bump to adopt newer Krites
+  KRITES_VERSION: "0.0.4" # pinned @kleroterion/krites; bump to adopt newer Krites
 
 jobs:
   review:
