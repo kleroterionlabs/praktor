@@ -8,7 +8,9 @@
 #   CLAUDE_CODE_OAUTH_TOKEN  — Claude Code token from `claude setup-token` (Pro/Max subscription;
 #                              swap for ANTHROPIC_API_KEY to meter via an API key)
 #   PRAKTOR_APP_ID           — Praktor's own GitHub App id
-#   PRAKTOR_APP_PRIVATE_KEY  — the app private key (raw PEM or a base64-encoded PEM)
+#   PRAKTOR_APP_PRIVATE_KEY  — the app private key as RAW PEM (the .pem file contents, BEGIN…END).
+#                              Do NOT base64-encode it: it is passed to the token action as a
+#                              masked secret, and decoding it in a run step would leak it in logs.
 # The App must grant: Contents R/W, Pull requests R/W, Issues R/W, Discussions R/W, Projects R/W.
 name: Praktor Hourly
 
@@ -31,26 +33,15 @@ jobs:
   implement:
     runs-on: ubuntu-latest
     steps:
-      # The App private key may be stored as raw PEM or base64-encoded PEM; normalize to PEM.
-      # Emit it as a step OUTPUT (not GITHUB_ENV) so the key is not exposed to the coder's env later.
-      - name: Decode Praktor App private key
-        id: decode
-        env:
-          KEY: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
-        run: |
-          if printf '%s' "$KEY" | grep -q "BEGIN"; then pem="$KEY"; else pem="$(printf '%s' "$KEY" | base64 -d)"; fi
-          {
-            echo 'pem<<__PEM_EOF__'
-            printf '%s\n' "$pem"
-            echo '__PEM_EOF__'
-          } >> "$GITHUB_OUTPUT"
-
+      # Pass the secret straight to the action — GitHub masks ${{ secrets.* }} in logs.
+      # NEVER decode/transform it in a run step: a derived value is NOT masked and the action
+      # echoes its inputs, which would print the key in cleartext.
       - name: Mint Praktor App installation token
         id: apptoken
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.PRAKTOR_APP_ID }}
-          private-key: ${{ steps.decode.outputs.pem }}
+          private-key: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v6
         with:
