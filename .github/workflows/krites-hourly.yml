@@ -1,6 +1,6 @@
 # Dogfooding: every hour, Krites checks THIS repo for a reviewable PR (one Praktor opened against a
-# Boule Task), reviews it, and — if its deterministic gate allows — enables gated auto-merge. GitHub's
-# branch protection still performs the actual merge only once required checks/reviews pass. Krites is
+# Boule Task), reviews it, and — if its deterministic gate allows — merges it (SHA-pinned; branch
+# protection enforces required checks/reviews server-side, and Krites has no admin bypass). Krites is
 # installed from npm (@kleroterion/krites), since Praktor and Krites are separate packages.
 #
 # Secrets (named KRITES_* because Actions forbids the reserved `GITHUB_` prefix). Only the App id +
@@ -14,7 +14,8 @@
 #                              secret, and decoding it in a run step would leak it in logs.
 # The App must grant: Contents R/W, Pull requests R/W, Issues R/W, Discussions R/W, Checks read,
 # Metadata read. Do NOT grant Administration — Krites must not edit its own branch protection or CI.
-# Krites only ENABLES auto-merge; this repo must also have branch protection + 'Allow auto-merge' on.
+# This repo MUST have branch protection (with the CI job as a required status check) — Krites merges
+# through it, not around it, and refuses to merge if the branch is unprotected.
 name: Krites Hourly
 
 on:
