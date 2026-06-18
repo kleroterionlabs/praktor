@@ -1,6 +1,6 @@
 // src/github/tasks.ts — read Boule's Task backlog and decide what's READY to implement.
-// A Task is ready iff: open, kind:task, status:accepted, not already in-progress/done by Praktor,
-// and every native "blocked by" dependency is closed (its prerequisites are done).
+// A Task is ready iff: open, boule:managed, kind:task, status:accepted, not already in-progress/done
+// by Praktor, and every native "blocked by" dependency is closed (its prerequisites are done).
 import {
   type GitHubClient,
   OPERATIONAL_LABELS,
@@ -12,6 +12,8 @@ import {
 
 const TASK_LABEL = kindLabel("task");
 const STATUS_ACCEPTED = "status:accepted";
+// Only ever touch issues Boule actively manages — never hand-filed issues that happen to be labelled.
+const MANAGED_LABEL = OPERATIONAL_LABELS.managed;
 
 export interface TaskRef {
   number: number;
@@ -46,7 +48,7 @@ export async function listAcceptedTasks(gh: GitHubClient, owner: string, name: s
     o.issues.listForRepo({
       owner,
       repo: name,
-      labels: `${TASK_LABEL},${STATUS_ACCEPTED}`, // AND semantics
+      labels: `${MANAGED_LABEL},${TASK_LABEL},${STATUS_ACCEPTED}`, // AND semantics
       state: "open",
       per_page: 100,
     }),
@@ -55,6 +57,7 @@ export async function listAcceptedTasks(gh: GitHubClient, owner: string, name: s
   for (const i of res.data) {
     if (i.pull_request) continue;
     const labels = labelNames(i.labels ?? []);
+    if (!labels.includes(MANAGED_LABEL)) continue; // belt-and-suspenders: never touch unmanaged issues
     if (labels.includes(PRAKTOR_LABELS.inProgress) || labels.includes(PRAKTOR_LABELS.done)) continue;
     const body = i.body ?? "";
     out.push({
