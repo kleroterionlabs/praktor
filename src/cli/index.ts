@@ -1,6 +1,7 @@
 // src/cli/index.ts — build the commander program (testable; bin.ts wires it to argv/process).
 import { Command } from "commander";
 import { registerDoctor } from "./commands/doctor.js";
+import { registerHeal } from "./commands/heal.js";
 import { registerImplement } from "./commands/implement.js";
 import { registerNext } from "./commands/next.js";
 import { registerStatus } from "./commands/status.js";
@@ -26,7 +27,7 @@ export function buildProgram(): Command {
     .option("--json", "machine-readable output", false)
     .option("-v, --verbose", "verbose logging", false);
 
-  for (const register of [registerDoctor, registerNext, registerStatus, registerImplement]) {
+  for (const register of [registerDoctor, registerNext, registerStatus, registerImplement, registerHeal]) {
     register(program);
   }
   return program;

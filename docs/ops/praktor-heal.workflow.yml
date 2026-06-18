@@ -1,0 +1,81 @@
+# INSTALL: copy this file to `.github/workflows/praktor-heal.yml` and commit it from an account with
+# `workflows` permission. Praktor's own App token is (intentionally) not granted the `workflows`
+# scope, so the bot cannot add/modify workflow files itself — a human (or a PAT with that scope)
+# must install it. It is parked here under docs/ops/ so the rest of the heal change can land via the
+# bot's PR. No other file needs to change to enable it.
+#
+# Self-healing: on a schedule, Praktor finds its OWN conflicting/stale PRs — the ones GitHub can't
+# build a test-merge commit for (so `pull_request` CI never runs and they sit CONFLICTING forever) —
+# rebases them onto base, has the coder resolve conflicts, runs the repo's checks, and FORCE-PUSHES
+# with an expected-SHA lease so CI runs and Krites can review+merge normally.
+#
+# Heal NEVER merges a PR and NEVER enables auto-merge — Krites + branch protection remain the sole
+# merge authority. It only ever touches branches of PRs provably authored by `praktorai[bot]` and
+# linked to a Boule Task. The force-push dismisses Krites's stale approval (ruleset), so Krites
+# re-reviews the resolution before any merge.
+#
+# Secrets (same as praktor-hourly): only the App id + RAW PEM private key are needed.
+#   CLAUDE_CODE_OAUTH_TOKEN  — Claude Code token (Pro/Max), or swap for ANTHROPIC_API_KEY
+#   PRAKTOR_APP_ID           — Praktor's own GitHub App id
+#   PRAKTOR_APP_PRIVATE_KEY  — the app private key as RAW PEM (BEGIN…END). Do NOT base64-encode it.
+# The App must grant: Contents R/W, Pull requests R/W, Issues R/W, Discussions R/W.
+name: Praktor Heal
+
+on:
+  schedule:
+    # Staggered from praktor-hourly (:17) and krites-hourly (:37) to avoid contending for the same PRs.
+    - cron: "47 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Heal only this PR number (optional; blank = all candidates)"
+        required: false
+        type: string
+      dry_run:
+        description: "Plan only; write nothing"
+        type: boolean
+        default: false
+
+# Only one heal run at a time: never let two runs race to rebase/force-push the same branch.
+concurrency:
+  group: praktor-heal
+  cancel-in-progress: false
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    steps:
+      # Pass the secret straight to the action — GitHub masks ${{ secrets.* }} in logs.
+      # NEVER decode/transform it in a run step: a derived value is NOT masked.
+      - name: Mint Praktor App installation token
+        id: apptoken
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.PRAKTOR_APP_ID }}
+          private-key: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.apptoken.outputs.token }}
+          fetch-depth: 0 # full history so the coder can rebase
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Configure git identity (praktor[bot])
+        run: |
+          git config --global user.name "praktorai[bot]"
+          git config --global user.email "294579436+praktorai[bot]@users.noreply.github.com"
+
+      - name: Heal conflicting/stale Praktor PRs
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PRAKTOR_GITHUB_TOKEN: ${{ steps.apptoken.outputs.token }} # Praktor's GitHub API writes
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }}
+          PRAKTOR_REPO: ${{ github.repository }}
+        run: node dist/bin.js heal ${{ inputs.pr }} ${{ inputs.dry_run && '--dry-run' || '' }} --budget 10 --max-turns 200

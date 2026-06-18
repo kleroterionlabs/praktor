@@ -27,6 +27,19 @@ export const ConfigSchema = z.object({
       claimTtlMinutes: z.number().int().positive().default(60),
     })
     .default({}),
+  review: z
+    .object({
+      // The bot login Praktor authors its PRs as. `heal` ONLY ever touches PRs authored by this
+      // bot — a hard safety gate so Praktor never rebases a human's (or another bot's) PR.
+      botAuthor: z.string().default("praktorai[bot]"),
+    })
+    .default({}),
+  heal: z
+    .object({
+      // Refuse to heal any single PR more than this many times (globally, across runs) → escalate.
+      loopCap: z.number().int().positive().default(3),
+    })
+    .default({}),
   flags: z
     .object({
       dryRun: z.boolean().default(false),
