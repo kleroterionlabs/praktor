@@ -1,5 +1,6 @@
 // src/cli/commands/implement.ts — claim one ready Task (cooperative lock via Discussions), drive the
 // coder to implement it and open a PR, then post a handoff. The full Praktor loop for one task.
+import type { RunOutcome } from "@kleroterion/koine";
 import type { Command } from "commander";
 import { ulid } from "ulid";
 import { implementTask } from "../../agents/implementer.js";
@@ -20,6 +21,34 @@ function pickTarget(ready: ReadyTask[], target?: string): ReadyTask | undefined 
   const num = Number(target.replace(/^#/, ""));
   if (Number.isInteger(num)) return ready.find((t) => t.number === num);
   return ready.find((t) => t.bouleId === target);
+}
+
+/** A minimal view of koine's RunOutcome — just what the success/exit decision needs. */
+type OutcomeView = Pick<RunOutcome, "ok" | "stopReason" | "costUsd">;
+
+/** The decision the command makes from an agent outcome: did real work happen, what to report, how to exit. */
+export interface OutcomeVerdict {
+  /** True only for a real implementation: the agent succeeded AND billed for model work. */
+  success: boolean;
+  /** Process exit code: 0 on real success, non-zero otherwise. */
+  exitCode: number;
+}
+
+/**
+ * Decide whether an implement run actually did work.
+ *
+ * A `costUsd === 0` run means no tokens were billed ⇒ the model never ran (e.g. the Claude Agent SDK
+ * subprocess crashed at startup over a missing/invalid CLAUDE_CODE_OAUTH_TOKEN). koine's `runQuery`
+ * currently keeps a `success` outcome even when that subprocess exits non-zero (it only warns), so
+ * `ok === true, costUsd === 0` reaches us as a silent false-success. Guard against it here: a no-work
+ * run is a failure — no completion comment, no "done", and a non-zero exit.
+ */
+export function classifyOutcome(result: OutcomeView): OutcomeVerdict {
+  const noWork = result.costUsd === 0;
+  const success = result.ok && !noWork;
+  if (success) return { success: true, exitCode: 0 };
+  const exitCode = result.stopReason === "error_max_budget_usd" ? 4 : 1;
+  return { success: false, exitCode };
 }
 
 export function registerImplement(program: Command): void {
@@ -90,9 +119,11 @@ export function registerImplement(program: Command): void {
       }
 
       const result = await implementTask({ cfg: ctx.cfg, task, requirements, log: ctx.log });
+      const verdict = classifyOutcome(result);
 
       if (!dryRun) {
-        const verb = result.ok ? "completed" : `stopped (${result.stopReason})`;
+        // A no-work run (costUsd === 0) is NOT a completion: report it stopped, not "completed".
+        const verb = verdict.success ? "completed" : `stopped (${result.stopReason})`;
         const errs = result.errors.length ? `\n\nErrors:\n- ${result.errors.join("\n- ")}` : "";
         await comment(
           ctx.gh,
@@ -102,13 +133,14 @@ export function registerImplement(program: Command): void {
           `🤖 Praktor run \`${runId}\` ${verb}. Cost $${result.costUsd.toFixed(4)}, ${result.numTurns} turns.${errs}`,
         );
         // A PR is open for this Task — swap praktor:in-progress for praktor:done. The Task stays OPEN
-        // until the PR merges and auto-closes it via `Closes #<task>`.
-        if (result.ok) await markDone(ctx.gh, ctx.owner, ctx.name, task.number);
+        // until the PR merges and auto-closes it via `Closes #<task>`. Mark done ONLY on a real success
+        // (verdict.success), never on a no-work false-success.
+        if (verdict.success) await markDone(ctx.gh, ctx.owner, ctx.name, task.number);
       }
 
       emit(
-        `${result.ok ? "✓" : "✗"} ${result.stopReason} · $${result.costUsd.toFixed(4)} · ${result.numTurns} turns`,
-        result.ok ? undefined : result.stopReason === "error_max_budget_usd" ? 4 : 1,
+        `${verdict.success ? "✓" : "✗"} ${result.stopReason} · $${result.costUsd.toFixed(4)} · ${result.numTurns} turns`,
+        verdict.success ? undefined : verdict.exitCode,
       );
     });
 }
