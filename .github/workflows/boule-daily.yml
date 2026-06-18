@@ -1,0 +1,57 @@
+# Dogfooding: every weekday, Boule grooms THIS repo's backlog and posts a daily status.
+# Boule is not built here — it is installed from npm (@kleroterion/cli), since Praktor and
+# Boule are separate packages. Praktor's own hourly workflow then implements what Boule readies.
+#
+# Repo/org secrets (named BOULE_* because Actions forbids the reserved `GITHUB_` prefix).
+# These are Boule's credentials — distinct from the PRAKTOR_* secrets used by praktor-hourly:
+#   CLAUDE_CODE_OAUTH_TOKEN    — Claude Code token from `claude setup-token` (Pro/Max subscription;
+#                                swap for ANTHROPIC_API_KEY to meter via an API key)
+#   BOULE_APP_ID               — Boule's GitHub App id
+#   BOULE_APP_INSTALLATION_ID  — its installation id on this org/repo
+#   BOULE_APP_PRIVATE_KEY      — the app private key (base64-encoded PEM recommended)
+# Simpler alternative to the App trio: one BOULE_GITHUB_TOKEN (fine-grained PAT) mapped to env
+# GITHUB_TOKEN. The built-in GITHUB_TOKEN can't write org Projects v2 or Discussions.
+name: Boule Daily
+
+on:
+  schedule:
+    - cron: "0 13 * * 1-5" # 13:00 UTC, weekdays
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only; write nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: boule-daily
+  cancel-in-progress: false
+
+env:
+  BOULE_VERSION: "0.0.7" # pinned @kleroterion/cli; bump to adopt newer Boule
+
+jobs:
+  groom:
+    runs-on: ubuntu-latest
+    env:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      BOULE_APP_ID: ${{ secrets.BOULE_APP_ID }}
+      BOULE_APP_INSTALLATION_ID: ${{ secrets.BOULE_APP_INSTALLATION_ID }}
+      BOULE_APP_PRIVATE_KEY: ${{ secrets.BOULE_APP_PRIVATE_KEY }}
+      BOULE_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install Boule from npm
+        run: npm install -g "@kleroterion/cli@${BOULE_VERSION}"
+
+      - name: Triage the backlog
+        run: boule triage ${{ inputs.dry_run && '--dry-run' || '' }} --budget 3
+
+      - name: Advance the backlog (Critic-gate → accepted → next stage)
+        run: boule advance ${{ inputs.dry_run && '--dry-run' || '' }} --budget 15 --max-turns 400
+
+      - name: Post daily status
+        run: boule daily ${{ inputs.dry_run && '--dry-run' || '' }} --budget 2

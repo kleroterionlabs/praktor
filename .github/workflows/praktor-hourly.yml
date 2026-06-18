@@ -1,0 +1,63 @@
+# Dogfooding: every hour, Praktor checks this repo for a ready Boule Task and implements it.
+# Repo/org secrets (named PRAKTOR_* because Actions forbids the reserved `GITHUB_` prefix):
+#   CLAUDE_CODE_OAUTH_TOKEN     — Claude Code token from `claude setup-token` (Pro/Max subscription;
+#                                 swap for ANTHROPIC_API_KEY to meter via an API key)
+#   PRAKTOR_APP_ID              — Praktor's own GitHub App id
+#   PRAKTOR_APP_INSTALLATION_ID — its installation id on this org/repo
+#   PRAKTOR_APP_PRIVATE_KEY     — the app private key (base64-encoded PEM recommended)
+# Simpler alternative to the App trio: one PRAKTOR_GITHUB_TOKEN (fine-grained PAT). The built-in
+# GITHUB_TOKEN can't write Projects v2 or Discussions, so it is not sufficient on its own.
+name: Praktor Hourly
+
+on:
+  schedule:
+    - cron: "17 * * * *" # hourly, at :17 to avoid the top-of-hour stampede
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only; write nothing"
+        type: boolean
+        default: false
+
+# Only one Praktor run at a time: never let two runs race for the same Task.
+concurrency:
+  group: praktor-hourly
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Check for ready Tasks
+        id: check
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PRAKTOR_APP_ID: ${{ secrets.PRAKTOR_APP_ID }}
+          PRAKTOR_APP_INSTALLATION_ID: ${{ secrets.PRAKTOR_APP_INSTALLATION_ID }}
+          PRAKTOR_APP_PRIVATE_KEY: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
+          PRAKTOR_REPO: ${{ github.repository }}
+        run: |
+          node dist/bin.js next --json > tasks.json
+          cat tasks.json
+          count=$(node -e "process.stdout.write(String((JSON.parse(require('fs').readFileSync('tasks.json','utf8')).ready||[]).length))")
+          echo "Ready tasks: $count"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Implement the next ready Task
+        if: steps.check.outputs.count != '0'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PRAKTOR_APP_ID: ${{ secrets.PRAKTOR_APP_ID }}
+          PRAKTOR_APP_INSTALLATION_ID: ${{ secrets.PRAKTOR_APP_INSTALLATION_ID }}
+          PRAKTOR_APP_PRIVATE_KEY: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
+          PRAKTOR_REPO: ${{ github.repository }}
+        run: node dist/bin.js implement ${{ inputs.dry_run && '--dry-run' || '' }} --budget 10 --max-turns 200
