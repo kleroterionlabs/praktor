@@ -6,6 +6,7 @@ import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { type Logger, type RunOutcome, runQuery } from "@kleroterion/koine";
 import type { Config } from "../config/schema.js";
 import type { ReadyTask } from "../github/tasks.js";
+import { makeAuditHook } from "./audit.js";
 
 function systemPrompt(repo: string): string {
   return [
@@ -72,6 +73,8 @@ export async function implementTask(args: ImplementArgs): Promise<RunOutcome> {
     // A real coder needs the full toolset in its working tree. It runs in an isolated checkout/CI.
     allowedTools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite"],
     permissionMode: cfg.flags.dryRun ? "plan" : "bypassPermissions",
+    // Audit EVERY tool call (matcher ".*") for visibility — logging only, never denies.
+    hooks: { PreToolUse: [{ matcher: ".*", hooks: [makeAuditHook(args.log)] }] },
   };
 
   return runQuery(prompt, options, { log: args.log });
