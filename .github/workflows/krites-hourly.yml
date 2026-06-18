@@ -1,0 +1,89 @@
+# Dogfooding: every hour, Krites checks THIS repo for a reviewable PR (one Praktor opened against a
+# Boule Task), reviews it, and — if its deterministic gate allows — enables gated auto-merge. GitHub's
+# branch protection still performs the actual merge only once required checks/reviews pass. Krites is
+# installed from npm (@kleroterion/krites), since Praktor and Krites are separate packages.
+#
+# Secrets (named KRITES_* because Actions forbids the reserved `GITHUB_` prefix). Only the App id +
+# private key are needed — a short-lived installation token is minted from them and reused for checkout,
+# git fetch of the PR head, and Krites's own GitHub API writes:
+#   CLAUDE_CODE_OAUTH_TOKEN  — Claude Code token from `claude setup-token` (Pro/Max subscription;
+#                              swap for ANTHROPIC_API_KEY to meter via an API key)
+#   KRITES_APP_ID            — Krites's own GitHub App id
+#   KRITES_APP_PRIVATE_KEY   — the app private key as RAW PEM (the .pem file contents, BEGIN…END).
+#                              Do NOT base64-encode it: it is passed to the token action as a masked
+#                              secret, and decoding it in a run step would leak it in logs.
+# The App must grant: Contents R/W, Pull requests R/W, Issues R/W, Discussions R/W, Checks read,
+# Metadata read. Do NOT grant Administration — Krites must not edit its own branch protection or CI.
+# Krites only ENABLES auto-merge; this repo must also have branch protection + 'Allow auto-merge' on.
+name: Krites Hourly
+
+on:
+  schedule:
+    - cron: "37 * * * *" # hourly, at :37 — staggered from Praktor (:17) so reviews trail implementations
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Review only; never enable merge or write state"
+        type: boolean
+        default: false
+
+# Only one Krites run at a time: never let two runs review/merge the same PR.
+concurrency:
+  group: krites-hourly
+  cancel-in-progress: false
+
+env:
+  KRITES_VERSION: "0.0.1" # pinned @kleroterion/krites; bump to adopt newer Krites
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      # Pass the secret straight to the action — GitHub masks ${{ secrets.* }} in logs.
+      # NEVER decode/transform it in a run step: a derived value is NOT masked and the action
+      # echoes its inputs, which would print the key in cleartext.
+      - name: Mint Krites App installation token
+        id: apptoken
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.KRITES_APP_ID }}
+          private-key: ${{ secrets.KRITES_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.apptoken.outputs.token }}
+          fetch-depth: 0 # full history so the reviewer can fetch/inspect the PR head
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Configure git identity (krites[bot])
+        run: |
+          git config --global user.name "krites[bot]"
+          git config --global user.email "krites[bot]@users.noreply.github.com"
+
+      - name: Install Krites from npm
+        run: npm install -g "@kleroterion/krites@${KRITES_VERSION}"
+
+      - name: Check for reviewable PRs
+        id: check
+        env:
+          KRITES_GITHUB_TOKEN: ${{ steps.apptoken.outputs.token }}
+          KRITES_REPO: ${{ github.repository }}
+        run: |
+          krites next --json > prs.json
+          cat prs.json
+          count=$(node -e "process.stdout.write(String((JSON.parse(require('fs').readFileSync('prs.json','utf8')).reviewable||[]).length))")
+          echo "Reviewable PRs: $count"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          rm -f prs.json
+
+      - name: Review the next PR
+        if: steps.check.outputs.count != '0'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          KRITES_GITHUB_TOKEN: ${{ steps.apptoken.outputs.token }} # Krites's GitHub API writes
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }} # git fetch of the PR head
+          KRITES_REPO: ${{ github.repository }}
+        run: krites review ${{ inputs.dry_run && '--dry-run' || '' }} --budget 5 --max-turns 120
