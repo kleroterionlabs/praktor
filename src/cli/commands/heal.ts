@@ -1,12 +1,15 @@
 // src/cli/commands/heal.ts — detect & heal Praktor's OWN conflicting/stale PRs. When another PR
 // merges first, GitHub can't build a test-merge commit, so `pull_request` CI never runs and the PR
-// is stuck CONFLICTING forever. Heal rebases the bot's branch onto base, has the coder resolve
-// conflicts, runs the repo's checks, and FORCE-PUSHES with an expected-SHA lease so CI runs and
-// Krites can review+merge normally.
+// is stuck CONFLICTING forever. Heal MERGES the base branch INTO the bot's branch (never a rebase),
+// has the coder resolve conflicts, runs the repo's checks, commits the merge, and PUSHES NORMALLY
+// (never a force-push — a non-fast-forward is rejected, so a concurrent push can't be clobbered) so
+// CI runs and Krites can review+merge normally.
 //
-// INVARIANTS (tested): heal NEVER merges a PR and NEVER enables/disables auto-merge — Krites +
-// branch protection remain the sole merge authority. Heal only ever touches the bot's own head
-// branch. All writes (push, comments, labels, discussions) flow through ONE `if (!dryRun)` choke.
+// INVARIANTS (tested): heal NEVER force-pushes, NEVER merges a PR, and NEVER enables/disables
+// auto-merge — Krites + branch protection remain the sole merge authority. Heal only ever appends a
+// merge commit to the bot's own head branch. All writes (push, comments, labels, discussions) flow
+// through ONE `if (!dryRun)` choke. The LLM resolves conflicts; this deterministic code commits +
+// pushes behind a strict gate (the model never pushes).
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { OPERATIONAL_LABELS } from "@kleroterion/koine";
@@ -23,7 +26,7 @@ import {
 import { addLabels, comment } from "../../github/progress.js";
 import { type HealablePr, listHealablePrs } from "../../github/prs.js";
 import { isHalted } from "../../github/tasks.js";
-import { type PrePushState, isLoopExceeded, prePushGate, safePushRefspec } from "../../heal/gate.js";
+import { type PrePushState, isLoopExceeded, prePushGate } from "../../heal/gate.js";
 import type { Ctx } from "./_shared.js";
 import { context, globals } from "./_shared.js";
 
@@ -44,9 +47,9 @@ function countConflictMarkers(): number {
   }
 }
 
-/** True while a rebase is mid-flight (markers/state on disk) — the push gate must refuse until clear. */
-function rebaseInProgress(): boolean {
-  return existsSync(".git/rebase-merge") || existsSync(".git/rebase-apply");
+/** True while a merge is mid-flight (not yet committed) — the push gate must refuse until committed. */
+function mergeInProgress(): boolean {
+  return existsSync(".git/MERGE_HEAD");
 }
 
 /** How many times this PR has already been healed, read from a `praktor:healed-N` label (survives runs). */
@@ -70,7 +73,9 @@ async function prLabels(ctx: Ctx, prNumber: number): Promise<string[]> {
 export function registerHeal(program: Command): void {
   program
     .command("heal [pr]")
-    .description("Detect & heal Praktor's own conflicting/stale PRs (rebase, resolve, force-push).")
+    .description(
+      "Detect & heal Praktor's own conflicting/stale PRs (merge base in, resolve, push — never force).",
+    )
     .option("--list", "read-only diagnostic: list heal candidates and exit (no writes)", false)
     .action(async (target: string | undefined, local: { list?: boolean }, cmd: Command) => {
       const runId = ulid();
@@ -153,7 +158,7 @@ async function healOne(ctx: Ctx, pr: HealablePr, opts: HealOpts): Promise<number
       ctx.name,
       categoryId,
       `Praktor heal needs a human: PR #${pr.number}`,
-      `🤖 Heal could not safely mend PR #${pr.number} (Task #${pr.bouleTask}, base \`${pr.baseRef}\`): ${reason}. Force-push was NOT performed; the PR is untouched.`,
+      `🤖 Heal could not safely mend PR #${pr.number} (Task #${pr.bouleTask}, base \`${pr.baseRef}\`): ${reason}. No push was performed; the PR is untouched.`,
     );
     await comment(ctx.gh, ctx.owner, ctx.name, pr.number, `🤖 Praktor heal escalated to a human: ${reason}.`);
   };
@@ -189,28 +194,28 @@ async function healOne(ctx: Ctx, pr: HealablePr, opts: HealOpts): Promise<number
     }
   }
 
-  log(`#${pr.number}: healing onto ${pr.baseRef}${dryRun ? " [dry-run]" : ""}`);
+  log(`#${pr.number}: merging ${pr.baseRef} into ${pr.headRef}${dryRun ? " [dry-run]" : ""}`);
 
-  // Checkout head, capture the head SHA BEFORE the rebase (the lease pins to this), rebase onto base.
-  let capturedHeadSha = pr.headSha;
+  // Checkout the PR head and merge the FRESH base INTO it (never rebase, never rewrite history).
+  // A clean merge auto-commits; a conflicting merge leaves markers for the coder to resolve.
   try {
     git(["fetch", "origin", pr.headRef, pr.baseRef]);
     git(["checkout", pr.headRef]);
-    capturedHeadSha = git(["rev-parse", "HEAD"]);
   } catch (e) {
     await escalate(`could not checkout/fetch the PR head: ${e instanceof Error ? e.message : String(e)}`);
     return 1;
   }
 
-  let rebaseConflicted = false;
+  let mergeConflicted = false;
   try {
-    git(["rebase", `origin/${pr.baseRef}`]);
+    git(["merge", "--no-edit", `origin/${pr.baseRef}`]);
   } catch {
-    rebaseConflicted = true; // markers are now in the tree; the coder resolves them
+    mergeConflicted = true; // markers are now in the tree; the coder resolves them
   }
 
-  // Resolve conflicts with the coder agent if the rebase stopped on conflicts.
-  if (rebaseConflicted) {
+  // Resolve conflicts with the coder, then COMMIT the merge here (the coder only resolves + stages;
+  // this deterministic code finalizes the commit — the model never commits or pushes).
+  if (mergeConflicted) {
     const task = await fetchTask(ctx, pr.bouleTask);
     const conflicted = conflictedFiles();
     const result = await resolveConflicts({
@@ -230,6 +235,13 @@ async function healOne(ctx: Ctx, pr: HealablePr, opts: HealOpts): Promise<number
       await escalate(`coder could not resolve conflicts (${result.stopReason})`);
       return 1;
     }
+    try {
+      git(["commit", "--no-edit"]); // finalize the merge commit (fails if any path is still unmerged)
+    } catch (e) {
+      gitAbort();
+      await escalate(`could not finalize the merge commit: ${e instanceof Error ? e.message : String(e)}`);
+      return 1;
+    }
   }
 
   // Pre-push gate (pure). Re-check auto-merge live just before pushing.
@@ -238,7 +250,7 @@ async function healOne(ctx: Ctx, pr: HealablePr, opts: HealOpts): Promise<number
   const state: PrePushState = {
     statusClean: git(["status", "--porcelain"]).length === 0,
     conflictMarkers: countConflictMarkers(),
-    rebaseInProgress: rebaseInProgress(),
+    mergeInProgress: mergeInProgress(),
     checksGreen,
     autoMergeEnabled: autoMergeNow,
   };
@@ -249,20 +261,22 @@ async function healOne(ctx: Ctx, pr: HealablePr, opts: HealOpts): Promise<number
     return 1;
   }
 
-  // Under dry-run we computed a REAL plan but must abort the rebase and never push/comment/label.
+  // Under dry-run we computed a REAL plan but must reset and never push/comment/label.
   if (dryRun) {
     gitAbort();
-    log(`#${pr.number}: [dry-run] would force-push ${pr.headRef} with lease @${capturedHeadSha.slice(0, 8)}`);
+    log(`#${pr.number}: [dry-run] would push the merge of ${pr.baseRef} to ${pr.headRef} (no force-push).`);
     return 0;
   }
 
-  // Safe force-push: expected-SHA lease. If the remote head moved, the lease fails → abort + escalate.
-  const refspec = safePushRefspec(pr.headRef, capturedHeadSha);
+  // NORMAL push — never force. The branch only gained a merge commit, so this fast-forwards; if the
+  // remote head moved (a concurrent push), git rejects the non-fast-forward → abort + escalate (no clobber).
   try {
-    git(["push", refspec, "origin", `HEAD:${pr.headRef}`]);
+    git(["push", "origin", `HEAD:${pr.headRef}`]);
   } catch (e) {
     gitAbort();
-    await escalate(`lease push aborted (remote head moved): ${e instanceof Error ? e.message : String(e)}`);
+    await escalate(
+      `push rejected — remote head moved (never force-pushed): ${e instanceof Error ? e.message : String(e)}`,
+    );
     return 1;
   }
 
@@ -274,16 +288,16 @@ async function healOne(ctx: Ctx, pr: HealablePr, opts: HealOpts): Promise<number
     ctx.owner,
     ctx.name,
     pr.number,
-    `🤖 Praktor healed PR #${pr.number}: rebased onto \`${pr.baseRef}\`, resolved conflicts, checks green, force-pushed (lease @${capturedHeadSha.slice(0, 8)}). Mergeable state: \`${after}\`. Ready for Krites to re-review.`,
+    `🤖 Praktor healed PR #${pr.number}: merged \`${pr.baseRef}\` in, resolved conflicts, checks green, pushed (no force-push). Mergeable state: \`${after}\`. Ready for Krites to re-review.`,
   );
   log(`#${pr.number}: healed (mergeable_state=${after}).`);
   return 0;
 }
 
-/** Abort a mid-flight rebase and hard-reset the tree (best-effort; never throws). */
+/** Abort a mid-flight merge and hard-reset the tree (best-effort; never throws). */
 function gitAbort(): void {
   try {
-    if (rebaseInProgress()) execFileSync("git", ["rebase", "--abort"], { stdio: "ignore" });
+    if (mergeInProgress()) execFileSync("git", ["merge", "--abort"], { stdio: "ignore" });
   } catch {
     /* best effort */
   }

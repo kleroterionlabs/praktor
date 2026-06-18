@@ -1,12 +1,12 @@
 # Self-healing: on a schedule, Praktor finds its OWN conflicting/stale PRs — the ones GitHub can't
 # build a test-merge commit for (so `pull_request` CI never runs and they sit CONFLICTING forever) —
-# rebases them onto base, has the coder resolve conflicts, runs the repo's checks, and FORCE-PUSHES
-# with an expected-SHA lease so CI runs and Krites can review+merge normally.
+# MERGES the base branch into them, has the coder resolve conflicts, runs the repo's checks, commits
+# the merge, and pushes NORMALLY (never a force-push) so CI runs and Krites can review+merge normally.
 #
-# Heal NEVER merges a PR and NEVER enables auto-merge — Krites + branch protection remain the sole
-# merge authority. It only ever touches branches of PRs provably authored by `praktorai[bot]` and
-# linked to a Boule Task. The force-push dismisses Krites's stale approval (ruleset), so Krites
-# re-reviews the resolution before any merge.
+# Heal NEVER force-pushes, NEVER merges a PR, and NEVER enables auto-merge — Krites + branch protection
+# remain the sole merge authority. It only ever appends a merge commit to branches of PRs provably
+# authored by `praktorai[bot]` and linked to a Boule Task. The new commit dismisses Krites's stale
+# approval (ruleset), so Krites re-reviews the resolution before any merge.
 #
 # Secrets (same as praktor-hourly): only the App id + RAW PEM private key are needed.
 #   CLAUDE_CODE_OAUTH_TOKEN  — Claude Code token (Pro/Max), or swap for ANTHROPIC_API_KEY

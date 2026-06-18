@@ -1,17 +1,12 @@
 // test/unit/heal.test.ts — the DANGEROUS heal paths exercised as PURE functions: refuse a non-bot /
-// non-Boule / UNKNOWN PR, refuse when auto-merge is enabled, lease aborts when the head moved, the
-// pre-push gate denies on remaining markers / red checks / unconcluded rebase, and the loop cap. The
+// non-Boule / UNKNOWN PR, refuse when auto-merge is enabled, and the pre-push gate denies on remaining
+// markers / red checks / an uncommitted merge / a dirty tree / enabled auto-merge, plus the loop cap.
+// Heal NEVER force-pushes (it merges base in + normal-pushes), so there is no lease to test. The
 // dry-run "suppress all writes" invariant is structurally guaranteed by routing every write through
 // the single `if (!dryRun)` choke in heal.ts; here we lock down the pure decisions it depends on.
 import { describe, expect, it } from "vitest";
 import { parseCloses } from "../../src/github/prs.js";
-import {
-  type HealPrView,
-  isLoopExceeded,
-  prePushGate,
-  safePushRefspec,
-  shouldHeal,
-} from "../../src/heal/gate.js";
+import { type HealPrView, isLoopExceeded, prePushGate, shouldHeal } from "../../src/heal/gate.js";
 
 const BOT = "praktorai[bot]";
 const okPr = (over: Partial<HealPrView> = {}): HealPrView => ({
@@ -68,30 +63,16 @@ describe("parseCloses", () => {
   });
 });
 
-describe("safePushRefspec — expected-SHA lease", () => {
-  it("pins the lease to the captured head SHA (never a bare lease, never --force)", () => {
-    const sha = "a".repeat(40);
-    expect(safePushRefspec("praktor/x", sha)).toBe(`--force-with-lease=praktor/x:${sha}`);
-  });
-  it("rejects a non-SHA expected value (refuses to build an unsafe push)", () => {
-    expect(() => safePushRefspec("praktor/x", "")).toThrow();
-    expect(() => safePushRefspec("praktor/x", "HEAD")).toThrow();
-  });
-  it("requires a branch", () => {
-    expect(() => safePushRefspec("", "a".repeat(40))).toThrow();
-  });
-});
-
 describe("prePushGate — push only when fully safe", () => {
   const green = {
     statusClean: true,
     conflictMarkers: 0,
-    rebaseInProgress: false,
+    mergeInProgress: false,
     checksGreen: true,
     autoMergeEnabled: false,
   };
 
-  it("pushes when the tree is clean, no markers, rebase concluded, checks green, no auto-merge", () => {
+  it("pushes when the tree is clean, no markers, merge committed, checks green, no auto-merge", () => {
     expect(prePushGate(green)).toEqual({ push: true, reason: "" });
   });
 
@@ -103,8 +84,8 @@ describe("prePushGate — push only when fully safe", () => {
     expect(prePushGate({ ...green, checksGreen: false }).push).toBe(false);
   });
 
-  it("DENIES when the rebase has not concluded", () => {
-    expect(prePushGate({ ...green, rebaseInProgress: true }).push).toBe(false);
+  it("DENIES when the merge is not yet committed", () => {
+    expect(prePushGate({ ...green, mergeInProgress: true }).push).toBe(false);
   });
 
   it("DENIES when the working tree is dirty", () => {
