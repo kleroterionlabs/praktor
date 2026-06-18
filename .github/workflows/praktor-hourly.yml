@@ -1,12 +1,15 @@
-# Dogfooding: every hour, Praktor checks this repo for a ready Boule Task and implements it.
-# Repo/org secrets (named PRAKTOR_* because Actions forbids the reserved `GITHUB_` prefix):
-#   CLAUDE_CODE_OAUTH_TOKEN     — Claude Code token from `claude setup-token` (Pro/Max subscription;
-#                                 swap for ANTHROPIC_API_KEY to meter via an API key)
-#   PRAKTOR_APP_ID              — Praktor's own GitHub App id
-#   PRAKTOR_APP_INSTALLATION_ID — its installation id on this org/repo
-#   PRAKTOR_APP_PRIVATE_KEY     — the app private key (base64-encoded PEM recommended)
-# Simpler alternative to the App trio: one PRAKTOR_GITHUB_TOKEN (fine-grained PAT). The built-in
-# GITHUB_TOKEN can't write Projects v2 or Discussions, so it is not sufficient on its own.
+# Dogfooding: every hour, Praktor checks this repo for a ready Boule Task, implements it on a
+# branch, and opens a PR. Praktor is a real coder — it needs the repo CHECKED OUT and git/gh
+# authenticated so it can branch, push, and `gh pr create`. This repo builds Praktor from source.
+#
+# Secrets (named PRAKTOR_* because Actions forbids the reserved `GITHUB_` prefix). Only the App
+# id + private key are needed — a short-lived installation token is minted from them and reused
+# for checkout, git push, `gh`, and Praktor's own GitHub API writes:
+#   CLAUDE_CODE_OAUTH_TOKEN  — Claude Code token from `claude setup-token` (Pro/Max subscription;
+#                              swap for ANTHROPIC_API_KEY to meter via an API key)
+#   PRAKTOR_APP_ID           — Praktor's own GitHub App id
+#   PRAKTOR_APP_PRIVATE_KEY  — the app private key (raw PEM or a base64-encoded PEM)
+# The App must grant: Contents R/W, Pull requests R/W, Issues R/W, Discussions R/W, Projects R/W.
 name: Praktor Hourly
 
 on:
@@ -28,7 +31,32 @@ jobs:
   implement:
     runs-on: ubuntu-latest
     steps:
+      # The App private key may be stored as raw PEM or base64-encoded PEM; normalize to PEM.
+      # Emit it as a step OUTPUT (not GITHUB_ENV) so the key is not exposed to the coder's env later.
+      - name: Decode Praktor App private key
+        id: decode
+        env:
+          KEY: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
+        run: |
+          if printf '%s' "$KEY" | grep -q "BEGIN"; then pem="$KEY"; else pem="$(printf '%s' "$KEY" | base64 -d)"; fi
+          {
+            echo 'pem<<__PEM_EOF__'
+            printf '%s\n' "$pem"
+            echo '__PEM_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mint Praktor App installation token
+        id: apptoken
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.PRAKTOR_APP_ID }}
+          private-key: ${{ steps.decode.outputs.pem }}
+
       - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.apptoken.outputs.token }}
+          fetch-depth: 0 # full history so the coder can branch/rebase
+
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -37,13 +65,15 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - name: Configure git identity (praktor[bot])
+        run: |
+          git config --global user.name "praktorai[bot]"
+          git config --global user.email "294579436+praktorai[bot]@users.noreply.github.com"
+
       - name: Check for ready Tasks
         id: check
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          PRAKTOR_APP_ID: ${{ secrets.PRAKTOR_APP_ID }}
-          PRAKTOR_APP_INSTALLATION_ID: ${{ secrets.PRAKTOR_APP_INSTALLATION_ID }}
-          PRAKTOR_APP_PRIVATE_KEY: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
+          PRAKTOR_GITHUB_TOKEN: ${{ steps.apptoken.outputs.token }}
           PRAKTOR_REPO: ${{ github.repository }}
         run: |
           node dist/bin.js next --json > tasks.json
@@ -51,13 +81,13 @@ jobs:
           count=$(node -e "process.stdout.write(String((JSON.parse(require('fs').readFileSync('tasks.json','utf8')).ready||[]).length))")
           echo "Ready tasks: $count"
           echo "count=$count" >> "$GITHUB_OUTPUT"
+          rm -f tasks.json
 
       - name: Implement the next ready Task
         if: steps.check.outputs.count != '0'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          PRAKTOR_APP_ID: ${{ secrets.PRAKTOR_APP_ID }}
-          PRAKTOR_APP_INSTALLATION_ID: ${{ secrets.PRAKTOR_APP_INSTALLATION_ID }}
-          PRAKTOR_APP_PRIVATE_KEY: ${{ secrets.PRAKTOR_APP_PRIVATE_KEY }}
+          PRAKTOR_GITHUB_TOKEN: ${{ steps.apptoken.outputs.token }} # Praktor's GitHub API writes
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }} # the coder's `gh pr create`
           PRAKTOR_REPO: ${{ github.repository }}
         run: node dist/bin.js implement ${{ inputs.dry_run && '--dry-run' || '' }} --budget 10 --max-turns 200
