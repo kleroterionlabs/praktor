@@ -10,7 +10,7 @@ import {
   listClaims,
   postDiscussion,
 } from "../../github/discussions.js";
-import { comment, markInProgress } from "../../github/progress.js";
+import { comment, markDone, markInProgress } from "../../github/progress.js";
 import { type ReadyTask, isHalted, listReadyTasks } from "../../github/tasks.js";
 import { context, globals } from "./_shared.js";
 
@@ -101,6 +101,9 @@ export function registerImplement(program: Command): void {
           task.number,
           `🤖 Praktor run \`${runId}\` ${verb}. Cost $${result.costUsd.toFixed(4)}, ${result.numTurns} turns.${errs}`,
         );
+        // A PR is open for this Task — swap praktor:in-progress for praktor:done. The Task stays OPEN
+        // until the PR merges and auto-closes it via `Closes #<task>`.
+        if (result.ok) await markDone(ctx.gh, ctx.owner, ctx.name, task.number);
       }
 
       emit(
