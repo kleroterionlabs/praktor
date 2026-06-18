@@ -1,6 +1,7 @@
-// test/unit/implement.test.ts — the implement flow must mark a Task done once its PR is open.
-// Encodes Task #3's acceptance criteria: markDone runs on the success path, and is skipped on
-// dry-run / non-ok (error, halt, lost claim, no ready task) paths.
+// test/unit/implement.test.ts — two concerns of the implement flow:
+//  1. classifyOutcome (Task #6): a no-work run (costUsd === 0) is a failure, never a false success.
+//  2. The flow marks a Task done once its PR is open (Task #3): markDone runs ONLY on a real success,
+//     and is skipped on dry-run / non-ok / halt / lost-claim / no-task / no-work paths.
 import type { RunOutcome } from "@kleroterion/koine";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,7 +50,7 @@ vi.mock("../../src/cli/commands/_shared.js", () => ({
   globals: () => ({ dryRun: false }),
 }));
 
-import { registerImplement } from "../../src/cli/commands/implement.js";
+import { classifyOutcome, registerImplement } from "../../src/cli/commands/implement.js";
 
 const TASK = { number: 31, title: "Do the thing", bouleId: "T-31", verifies: [], body: "" };
 
@@ -66,13 +67,14 @@ function makeCtx(dryRun: boolean) {
   };
 }
 
+/** Build a run outcome; defaults to a REAL success (costUsd > 0). Assignable to classifyOutcome's view. */
 function outcome(over: Partial<RunOutcome>): RunOutcome {
   return {
     ok: true,
     stopReason: "success",
     sessionId: "s",
     numTurns: 1,
-    costUsd: 0,
+    costUsd: 0.5,
     modelUsage: {},
     errors: [],
     ...over,
@@ -85,6 +87,32 @@ async function run(): Promise<void> {
   registerImplement(program);
   await program.parseAsync(["node", "praktor", "implement"]);
 }
+
+describe("classifyOutcome", () => {
+  it("fails a no-work run (costUsd === 0) even when ok/stopReason say success", () => {
+    const v = classifyOutcome(outcome({ ok: true, stopReason: "success", costUsd: 0 }));
+    expect(v.success).toBe(false);
+    expect(v.exitCode).not.toBe(0);
+  });
+
+  it("succeeds a real run that did work (costUsd > 0)", () => {
+    const v = classifyOutcome(outcome({ ok: true, stopReason: "success", costUsd: 0.0001 }));
+    expect(v.success).toBe(true);
+    expect(v.exitCode).toBe(0);
+  });
+
+  it("fails a genuine error stop with exit code 1", () => {
+    const v = classifyOutcome(outcome({ ok: false, stopReason: "error_during_execution", costUsd: 0.5 }));
+    expect(v.success).toBe(false);
+    expect(v.exitCode).toBe(1);
+  });
+
+  it("maps a budget stop to exit code 4", () => {
+    const v = classifyOutcome(outcome({ ok: false, stopReason: "error_max_budget_usd", costUsd: 9.99 }));
+    expect(v.success).toBe(false);
+    expect(v.exitCode).toBe(4);
+  });
+});
 
 describe("implement: mark Task done on PR", () => {
   beforeEach(() => {
@@ -101,14 +129,24 @@ describe("implement: mark Task done on PR", () => {
     process.exitCode = undefined;
   });
 
-  it("marks the Task done when the run succeeds and it is not a dry-run", async () => {
+  it("marks the Task done when the run really succeeds and it is not a dry-run", async () => {
     context.mockResolvedValue(makeCtx(false));
-    implementTask.mockResolvedValue(outcome({ ok: true }));
+    implementTask.mockResolvedValue(outcome({ ok: true, costUsd: 0.5 }));
 
     await run();
 
     expect(markInProgress).toHaveBeenCalledWith(expect.anything(), "kleroterionlabs", "boule", 31);
     expect(markDone).toHaveBeenCalledWith(expect.anything(), "kleroterionlabs", "boule", 31);
+  });
+
+  it("does NOT mark the Task done on a no-work run (costUsd === 0)", async () => {
+    context.mockResolvedValue(makeCtx(false));
+    implementTask.mockResolvedValue(outcome({ ok: true, costUsd: 0 }));
+
+    await run();
+
+    expect(comment).toHaveBeenCalled(); // audit comment still posted (reporting it stopped)
+    expect(markDone).not.toHaveBeenCalled();
   });
 
   it("does NOT mark the Task done when the run fails (non-ok)", async () => {
