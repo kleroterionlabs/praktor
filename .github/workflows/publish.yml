@@ -18,7 +18,20 @@ jobs:
       contents: write # create the tag, push the version bump, and publish the release
       id-token: write # required for npm provenance
     steps:
+      # Mint the keryx App token. keryx is the dedicated RELEASE identity (the "herald") and a bypass
+      # actor on the main ruleset, so its push of the version-bump commit + tag is allowed past branch
+      # protection (PR requirement + required checks). Pass the RAW PEM secret straight to the action —
+      # never decode it in a run step (a derived value is not masked and would leak in logs).
+      - name: Mint keryx App installation token
+        id: keryx
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.KERYX_APP_ID }}
+          private-key: ${{ secrets.KERYX_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.keryx.outputs.token }} # persist keryx creds so `git push` runs as keryx
 
       - uses: actions/setup-node@v6
         with:
@@ -47,11 +60,11 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Only after a successful publish: commit the bump, tag, and push.
+      # Only after a successful publish: commit the bump, tag, and push AS keryx (the bypass actor).
       - name: Commit, tag, and push
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "keryx[bot]"
+          git config user.email "keryx[bot]@users.noreply.github.com"
           git commit -am "release: ${{ steps.bump.outputs.tag }}"
           git tag "${{ steps.bump.outputs.tag }}"
           git push --follow-tags
@@ -59,6 +72,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ steps.keryx.outputs.token }}
           tag_name: ${{ steps.bump.outputs.tag }}
           name: ${{ steps.bump.outputs.tag }}
           generate_release_notes: true
